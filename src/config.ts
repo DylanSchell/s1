@@ -11,7 +11,14 @@ export interface Config {
   timeoutMs: number;
   /** HTTP port for the s1 server. */
   port: number;
-  /** Default n_probs (top-N) requested for each distribution read. */
+  /**
+   * Default n_probs (top-N) requested for each distribution read. Sized from
+   * measurement, not guesswork: across 152 required-token reads the deepest
+   * token carrying >=1e-3 probability sat at rank 9, so 64 leaves ~7x margin.
+   * Latency is flat to ~512; the cost of a larger N is response payload
+   * (~1.7 ms and ~80 KB per 1000 extra entries), not compute. `totalRaw` in each
+   * answer is the coverage guard: if it drops well below 1, raise this.
+   */
   nProbs: number;
 }
 
@@ -27,7 +34,7 @@ export const config: Config = {
   concurrency: Number(process.env.S1_CONCURRENCY ?? 2),
   timeoutMs: Number(process.env.S1_TIMEOUT_MS ?? 180_000),
   port: Number(process.env.S1_PORT ?? 8090),
-  nProbs: Number(process.env.S1_N_PROBS ?? process.env.S1_MAX_PROBS ?? 512),
+  nProbs: Number(process.env.S1_N_PROBS ?? process.env.S1_MAX_PROBS ?? 64),
 };
 
 export function upstream(path: string): string {
@@ -57,7 +64,7 @@ Options:
   -p, --port <n>          HTTP port for s1             [S1_PORT]        default 8090
   -c, --concurrency <n>   max in-flight completions    [S1_CONCURRENCY] default 2
   -t, --timeout-ms <n>    per-request timeout (ms)     [S1_TIMEOUT_MS]  default 180000
-  -n, --n-probs <n>       top-N per distribution read  [S1_N_PROBS]     default 512
+  -n, --n-probs <n>       top-N per distribution read  [S1_N_PROBS]     default 64
   -h, --help              show this help
 
 CLI flags override the S1_* environment variables.`;

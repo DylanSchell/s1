@@ -54,7 +54,7 @@ bun run start -- --base-url http://localhost:8081 --model my-model
 | `-p, --port <n>` | `S1_PORT` | `8090` | HTTP port s1 listens on |
 | `-c, --concurrency <n>` | `S1_CONCURRENCY` | `2` | max in-flight completions (match llama.cpp `--parallel`) |
 | `-t, --timeout-ms <n>` | `S1_TIMEOUT_MS` | `180000` | per-request timeout |
-| `-n, --n-probs <n>` | `S1_N_PROBS` | `512` | top-N tokens returned per distribution read |
+| `-n, --n-probs <n>` | `S1_N_PROBS` | `64` | top-N tokens returned per distribution read |
 
 CLI flags override the environment variables, which override the defaults.
 `--help` prints the same table.

@@ -90,6 +90,15 @@ Verified facts that drive this design:
 - Token-prefix collisions (`"very positive"` / `"very negative"`) are resolved by
   appending the shared prefix and re-reading — one call per shared node, not per
   option.
+- `n_probs` only has to reach the *material* option tokens, not every surface
+  form. Measured over 152 required-token reads (11 question instances): the
+  deepest token with p ≥ 1e-3 sat at rank **9**, so N=16 already covered every
+  token that matters. Tokens beyond that are capitalized variants with p ≈ 0
+  (`" Negative"` at rank 1448) that no N realistically reaches — and needn't.
+  Cost is payload, not compute: latency is flat from N=1 (72.1 ms) to N=512
+  (72.4 ms), while the response grows 0.2 KB → 40.8 KB. Default is therefore 64;
+  `totalRaw` (option mass before normalisation) is the coverage guard that tells
+  you when to raise it.
 
 ## Single-pass mode
 
