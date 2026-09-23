@@ -1,0 +1,19 @@
+{
+  "name": "s1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "src/server.ts",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --watch src/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "smoke": "bun run scripts/smoke.ts",
+    "evaluate": "bash scripts/evaluate.sh",
+    "compare": "bun run scripts/triage-compare.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

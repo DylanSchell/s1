@@ -1,0 +1,39 @@
+{
+  "state": "A customer says a password reset succeeded, but every login attempt still returns \"account locked\". Two unlock emails were requested and neither arrived.",
+  "questions": [
+    {
+      "id": "queue",
+      "type": "choice",
+      "prompt": "Which queue should handle this request?",
+      "options": ["Account access support", "Billing Support", "Close as resolved"]
+    },
+    {
+      "id": "can_sign_in",
+      "type": "noul",
+      "statement": "The customer is currently able to sign in to their account."
+    },
+    {
+      "id": "emails_delivered",
+      "type": "noul",
+      "statement": "The requested unlock emails were delivered to the customer."
+    },
+    {
+      "id": "root_cause",
+      "type": "choice",
+      "prompt": "Which system is the most likely root cause?",
+      "options": ["auth", "email", "billing"]
+    },
+    {
+      "id": "urgency",
+      "type": "score",
+      "prompt": "How urgently should an agent respond?",
+      "levels": ["low", "medium", "high", "critical"]
+    },
+    {
+      "id": "frustration",
+      "type": "score",
+      "prompt": "How frustrated is the customer?",
+      "levels": ["calm", "mildly frustrated", "very frustrated"]
+    }
+  ]
+}
