@@ -175,3 +175,7 @@ bun run compare                              # per-question vs single-pass, side
 
 All of the scripts accept the same flags as the server, e.g.
 `bun run scripts/smoke.ts --model my-model`.
+
+## License
+
+[MIT](./LICENSE) © 2026 Dylan Schell
