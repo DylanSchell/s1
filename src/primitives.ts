@@ -106,16 +106,70 @@ export function questionLabels(q: Question): string[] {
   }
 }
 
-function userContentFor(q: Question): { labels: string[]; content: string } {
+/** The user turn for a question (the per-question prompt body). */
+export function questionUserContent(q: Question): string {
   const labels = questionLabels(q);
   switch (q.type) {
     case "noul":
-      return { labels, content: noulUserContent(q.statement) };
+      return noulUserContent(q.statement);
     case "choice":
-      return { labels, content: choiceUserContent(q.prompt, labels) };
+      return choiceUserContent(q.prompt, labels);
     case "score":
-      return { labels, content: scoreUserContent(q.prompt, labels) };
+      return scoreUserContent(q.prompt, labels);
   }
+}
+
+export interface PreparedQuestion {
+  question: Question;
+  labels: string[];
+  /** The user turn. */
+  content: string;
+  /** The fully templated prompt sent to /completion. */
+  prompt: string;
+}
+
+/**
+ * Build one question's prompt without spending a forward pass. Split out from
+ * scoring so the orchestrator can inspect every prompt (and prime their shared
+ * prefix) before any of them are scored.
+ */
+export async function prepareQuestion(state: unknown, q: Question): Promise<PreparedQuestion> {
+  const labels = questionLabels(q);
+  const content = questionUserContent(q);
+  const prompt = await applyTemplate(buildMessages(state, content), {
+    enable_thinking: false,
+  });
+  return { question: q, labels, content, prompt };
+}
+
+/** Score an already-prepared question. Spends `scoreOptions`' completion calls. */
+export async function scorePrepared(
+  prep: PreparedQuestion,
+  opts: AnswerOptions = {},
+): Promise<Answer> {
+  const started = performance.now();
+  const { question: q, labels, prompt } = prep;
+
+  const scored = await scoreOptions(prompt, labels, {
+    nProbs: opts.nProbs ?? config.nProbs,
+    includeCaseVariants: opts.includeCaseVariants ?? true,
+  });
+
+  const probabilities = temperatureScale(scored.probabilities, opts.temperature ?? 1);
+  const { value, confidence, margin } = topStats(probabilities);
+
+  return decorateAnswer(q, {
+    id: q.id,
+    type: q.type,
+    value,
+    probabilities,
+    confidence,
+    margin,
+    strategy: scored.strategy,
+    totalRaw: scored.totalRaw,
+    calls: scored.calls,
+    latencyMs: Math.round(performance.now() - started),
+  });
 }
 
 /** Apply the type-specific derivations (noul / score) to a scored answer. */
@@ -138,35 +192,11 @@ export function decorateAnswer(q: Question, answer: Answer): Answer {
   return answer;
 }
 
+/** Prepare and score a single question. No priming — see `evaluate`. */
 export async function answerQuestion(
   state: unknown,
   q: Question,
   opts: AnswerOptions = {},
 ): Promise<Answer> {
-  const started = performance.now();
-  const { labels, content } = userContentFor(q);
-  const prompt = await applyTemplate(buildMessages(state, content), {
-    enable_thinking: false,
-  });
-
-  const scored = await scoreOptions(prompt, labels, {
-    nProbs: opts.nProbs ?? config.nProbs,
-    includeCaseVariants: opts.includeCaseVariants ?? true,
-  });
-
-  const probabilities = temperatureScale(scored.probabilities, opts.temperature ?? 1);
-  const { value, confidence, margin } = topStats(probabilities);
-
-  return decorateAnswer(q, {
-    id: q.id,
-    type: q.type,
-    value,
-    probabilities,
-    confidence,
-    margin,
-    strategy: scored.strategy,
-    totalRaw: scored.totalRaw,
-    calls: scored.calls,
-    latencyMs: Math.round(performance.now() - started),
-  });
+  return scorePrepared(await prepareQuestion(state, q), opts);
 }

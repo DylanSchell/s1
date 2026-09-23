@@ -20,6 +20,14 @@ export interface Config {
    * answer is the coverage guard: if it drops well below 1, raise this.
    */
   nProbs: number;
+  /**
+   * Minimum token length of the prefix shared by every question prompt before
+   * s1 spends one extra call priming the KV cache with it. llama.cpp only
+   * restores a cached prompt when the cached tokens are a prefix of the
+   * incoming prompt, so sibling questions (shared state, divergent tails) never
+   * hit the cache on their own. `0` disables priming.
+   */
+  primeMinTokens: number;
 }
 
 /**
@@ -35,6 +43,7 @@ export const config: Config = {
   timeoutMs: Number(process.env.S1_TIMEOUT_MS ?? 180_000),
   port: Number(process.env.S1_PORT ?? 8090),
   nProbs: Number(process.env.S1_N_PROBS ?? process.env.S1_MAX_PROBS ?? 64),
+  primeMinTokens: Number(process.env.S1_PRIME_MIN_TOKENS ?? 128),
 };
 
 export function upstream(path: string): string {
@@ -48,6 +57,7 @@ const OPTION_SPEC = {
   concurrency: { type: "string", short: "c" },
   "timeout-ms": { type: "string", short: "t" },
   "n-probs": { type: "string", short: "n" },
+  "prime-min-tokens": { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -65,6 +75,7 @@ Options:
   -c, --concurrency <n>   max in-flight completions    [S1_CONCURRENCY] default 2
   -t, --timeout-ms <n>    per-request timeout (ms)     [S1_TIMEOUT_MS]  default 180000
   -n, --n-probs <n>       top-N per distribution read  [S1_N_PROBS]     default 64
+      --prime-min-tokens <n>  min shared prefix to prime [S1_PRIME_MIN_TOKENS] default 128 (0 = off)
   -h, --help              show this help
 
 CLI flags override the S1_* environment variables.`;
@@ -75,6 +86,14 @@ function positiveNumber(flag: string, raw: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) {
     throw new CliError(`--${flag} must be a positive number (got "${raw}")`);
+  }
+  return n;
+}
+
+function nonNegativeNumber(flag: string, raw: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new CliError(`--${flag} must be zero or greater (got "${raw}")`);
   }
   return n;
 }
@@ -113,6 +132,9 @@ export function applyCli(values: Record<string, string | boolean | undefined>): 
   }
   if (typeof values["n-probs"] === "string") {
     config.nProbs = positiveNumber("n-probs", values["n-probs"]);
+  }
+  if (typeof values["prime-min-tokens"] === "string") {
+    config.primeMinTokens = nonNegativeNumber("prime-min-tokens", values["prime-min-tokens"]);
   }
 }
 

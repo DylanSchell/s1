@@ -57,9 +57,15 @@ Response:
 
 ## Scoring core (verified against llama.cpp)
 
-1. Build one shared prefix: system instruction + serialized `state`. Each question
-   is a short suffix, so llama.cpp's prompt cache (`cache_prompt`, `--cache-ram`)
-   reuses the state prefill. Fan-out concurrency matches `--parallel`.
+1. Build one shared prefix: system instruction + serialized `state`. Every
+   question is a short suffix on top of it. llama.cpp evaluates a prompt from
+   scratch unless the *cached* prompt is a prefix of the incoming one, and a
+   fan-out of sibling questions shares a head and then diverges — so on its own
+   the cache never hits. s1 therefore **primes** the shared prefix with one
+   extra call (reported as `timing.primeTokens`) and then asks the questions one
+   at a time, which is what makes every one of them reuse it. Priming is skipped
+   entirely when the shared prefix is shorter than `--prime-min-tokens`
+   (default 128, `0` disables), or when there is only one question.
 2. Tokenize every surface form of every option (`opt`, `" "+opt`, plus
    capitalized variants — tokenizers treat `yes`/`Yes`/` yes` as distinct tokens).
    Forms are looked up in the *same* distribution, so they cost no extra calls.
@@ -99,6 +105,13 @@ Verified facts that drive this design:
   (72.4 ms), while the response grows 0.2 KB → 40.8 KB. Default is therefore 64;
   `totalRaw` (option mass before normalisation) is the coverage guard that tells
   you when to raise it.
+- Prompt-cache reuse needs the *cached* prompt to be a prefix of the incoming
+  one. Measured via `timings.cache_n` on this server (`--kv-unified` +
+  `--cache-ram 16384`, so `--cache-idle-slots` saves idle slots and clears their
+  KV on every new task): an identical repeat reused all but 4 tokens, a strict
+  prefix extension reused 154 of 158, and a sibling prompt sharing 123 tokens
+  reused **0**. Sharing a head and then diverging is worth nothing. See
+  `scripts/measure-prefix-cache.ts`.
 
 ## Single-pass mode
 
@@ -143,6 +156,30 @@ Properties:
 
 Measured on `examples/triage-request.json` (6 questions): per-question = 6 calls /
 ~1.7 s, single-pass = **1 call / ~0.6 s**.
+
+## Prefix priming (per-question mode)
+
+Measured on a ~1.4k-token state with 6 questions, through the public API
+(`scripts/measure-prime-e2e.ts`):
+
+| | prefill tokens | wall |
+|---|---|---|
+| priming off | 12,797 | 10,425 ms |
+| priming on | 2,206 | 3,428 ms |
+
+**3.0× faster, answers identical.** Two conditions make it work:
+
+1. the prime is issued and awaited *before* any question is scored, so the
+   prefix is already cached; and
+2. the questions are then asked **one at a time**. A concurrently dispatched
+   question lands on a slot that is busy rebuilding its own prefix, and
+   llama.cpp can only restore a cached prompt into an idle slot. Measured:
+   serial + primed reused the prefix for all 6 questions, concurrent + primed
+   for only 3.
+
+For a short state the extra call is not worth it, so priming is skipped below
+`--prime-min-tokens`; on the triage example (66-token prefix) the request is
+bit-identical to unprimed and no prime call is made.
 
 ## Default posture
 
