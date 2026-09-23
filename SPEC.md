@@ -63,8 +63,9 @@ Response:
    fan-out of sibling questions shares a head and then diverges — so on its own
    the cache never hits. s1 therefore **primes** the shared prefix with one
    extra call (reported as `timing.primeTokens`) and then asks the questions one
-   at a time, which is what makes every one of them reuse it. Priming happens
-   whenever there is more than one question; `--prime-min-tokens -1` opts out.
+   at a time, which is what makes every one of them reuse it. Whether it is
+   worth doing at all depends on the shared prefix length — see below.
+   `--prime-min-tokens` controls it.
 2. Tokenize every surface form of every option (`opt`, `" "+opt`, plus
    capitalized variants — tokenizers treat `yes`/`Yes`/` yes` as distinct tokens).
    Forms are looked up in the *same* distribution, so they cost no extra calls.
@@ -158,28 +159,37 @@ Measured on `examples/triage-request.json` (6 questions): per-question = 6 calls
 
 ## Prefix priming (per-question mode)
 
-Measured through the public API with 6 questions, priming merely toggled
-(`scripts/measure-prime-e2e.ts`):
-
-| state | shared prefix | off | on | |
-|---|---|---|---|---|
-| triage example | 66 tok | 1825 ms | 1804 ms | 1.01x |
-| synthetic | ~1340 tok | 10,209 ms | 3440 ms | 2.97x |
-
-Answers are identical in both cases. On the large state prefill drops from
-12,797 to 2,206 tokens.
-
-**Priming is never gated on prefix length.** It costs one prefill of `L` tokens
-and saves `L` tokens on each of the `Q` questions, so the net saving is
-`L x (Q - 1)` — positive for any `Q >= 2` and any `L > 0`. There is no length
-below which caching stops working; llama.cpp has no such minimum. So s1 primes
-whenever a request needs more than one call, and `--prime-min-tokens -1` only
-exists as an explicit opt-out. Short prefixes are *neutral* rather than harmful:
-66 tokens of extra prefill buys the same back on each of the five remaining
-questions; the win only becomes large once the shared prefix dominates the
+llama.cpp only restores a cached prompt when the cached tokens are a *prefix* of
+the incoming prompt. A fan-out of sibling questions — same state, divergent
+tails — is therefore never a cache hit on its own, and each of the `Q` calls
+re-prefills the shared `L` tokens. s1 fixes that by spending one extra call on
+the shared prefix alone, so that every question becomes an extension of a cached
 prompt.
 
-Two conditions make priming work:
+Priming is a **trade, not a free win.** It makes each question an extension of a
+cached prefix, and it also forces the questions to be asked one at a time, which
+gives up llama.cpp's continuous batching (worth ~1.7x when two requests share a
+slot). The saved prefill only outweighs that once the shared prefix is long.
+
+Measured with 5 interleaved reps per point, a fresh state per run, and the order
+alternated (`scripts/measure-prime-crossover.ts`):
+
+| shared prefix | Q=6 | Q=20 |
+|---|---|---|
+| ~100 tok | 0.92x | 0.58x |
+| ~140 tok | 1.01x | 0.63x |
+| ~181 tok | 1.08x | 0.67x |
+| 546 tok | 1.79x | – |
+| 1,496 tok | 3.10x | – |
+| 4,376 tok | 3.02x | – |
+| 9,556 tok | 2.61x | – |
+
+Break-even sits near **140 tokens at Q=6** and **420 at Q=20**, so the crossover
+moves with question count and no single value is right for every shape.
+`--prime-min-tokens` (default **256**) therefore only primes where it clearly
+pays; `0` primes unconditionally, a negative value disables it.
+
+Two conditions make priming work at all:
 
 1. the prime is issued and awaited *before* any question is scored, so the
    prefix is already cached; and
@@ -188,6 +198,16 @@ Two conditions make priming work:
    llama.cpp can only restore a cached prompt into an idle slot. Measured:
    serial + primed reused the prefix for all 6 questions, concurrent + primed
    for only 3.
+
+Two measurement traps, both of which produced wrong numbers here before being
+caught:
+
+- **Every measurement needs a fresh state.** All clients share one llama.cpp
+  prompt cache, so reusing a state lets whichever run goes second inherit the
+  first one's warm prefix. An earlier version of this benchmark reused one state
+  for both runs and duly reported priming as a free 1.01x win on the short state.
+- **Re-run the eval script against the same state is not a cold test either.**
+  `--cache-ram` keeps the state around, so repeat runs are not measuring prefill.
 
 Known limitation: serialisation only guarantees slot locality while s1 is the
 only traffic. Two `evaluate` calls in flight at once can interleave across the

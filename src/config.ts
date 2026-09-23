@@ -21,18 +21,22 @@ export interface Config {
    */
   nProbs: number;
   /**
-   * Prime the KV cache with the prefix every question prompt shares, whenever a
-   * request needs more than one completion call — i.e. as soon as there are two
-   * or more questions.
+   * Minimum token length of the prefix shared by every question prompt before
+   * s1 spends one extra call priming it.
    *
-   * llama.cpp only restores a cached prompt when the cached tokens are a prefix
-   * of the incoming prompt. A fan-out of sibling questions (shared state,
-   * divergent tails) is therefore never a cache hit on its own: without priming,
-   * each of the Q calls re-prefills the shared L tokens. Priming costs one extra
-   * call and saves L x (Q - 1) prefill tokens, so it is on by default.
+   * Priming is a trade, not a free win. It makes every question an extension of
+   * a cached prefix, but it also forces the questions to be asked one at a time,
+   * which gives up llama.cpp's continuous batching (worth ~1.7x when two
+   * requests share a slot). The saved prefill only outweighs that once the
+   * shared prefix is long. Measured break-even, 5 interleaved reps per point,
+   * cold state each run (scripts/measure-prime-crossover.ts):
    *
-   * `0` = always prime; a negative value disables priming. A value above 0 is
-   * only a floor, for deliberately skipping priming on very short prefixes.
+   *   Q=6   ~140 tokens     Q=20  ~420 tokens
+   *
+   * The crossover moves with question count, so no single value is right for
+   * every shape; 256 is a default that only primes where it clearly pays.
+   *
+   * `0` = always prime; a negative value disables priming entirely.
    */
   primeMinTokens: number;
 }
@@ -50,7 +54,7 @@ export const config: Config = {
   timeoutMs: Number(process.env.S1_TIMEOUT_MS ?? 180_000),
   port: Number(process.env.S1_PORT ?? 8090),
   nProbs: Number(process.env.S1_N_PROBS ?? process.env.S1_MAX_PROBS ?? 64),
-  primeMinTokens: Number(process.env.S1_PRIME_MIN_TOKENS ?? 0),
+  primeMinTokens: Number(process.env.S1_PRIME_MIN_TOKENS ?? 256),
 };
 
 export function upstream(path: string): string {
@@ -82,7 +86,7 @@ Options:
   -c, --concurrency <n>   max in-flight completions    [S1_CONCURRENCY] default 2
   -t, --timeout-ms <n>    per-request timeout (ms)     [S1_TIMEOUT_MS]  default 180000
   -n, --n-probs <n>       top-N per distribution read  [S1_N_PROBS]     default 64
-      --prime-min-tokens <n>  min shared prefix to prime; 0 = always, <0 = never [S1_PRIME_MIN_TOKENS] default 0
+      --prime-min-tokens <n>  min shared prefix to prime; 0 = always, <0 = never [S1_PRIME_MIN_TOKENS] default 256
   -h, --help              show this help
 
 CLI flags override the S1_* environment variables.`;

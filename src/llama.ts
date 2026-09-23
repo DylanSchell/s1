@@ -42,7 +42,15 @@ export class Semaphore {
   }
 }
 
-// Only generation is slot-bound; tokenize/apply-template are cheap and local.
+/**
+ * Bounds every request that reaches the model server.
+ *
+ * llama-swap answers 429 ("Too many requests") once we exceed the concurrency
+ * it allows, and it counts *requests*, not generation steps -- a fan-out of
+ * /apply-template or /tokenize 429s exactly like a fan-out of /completion. So
+ * this wraps all of them. With 20 questions and an unbounded prepare phase,
+ * half the answers used to come back as 429 errors.
+ */
 const slots = new Semaphore(config.concurrency);
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -59,8 +67,13 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Every model-server call goes through the semaphore. See {@link slots}. */
+function modelJson<T>(path: string, body: unknown): Promise<T> {
+  return slots.run(() => postJson<T>(path, body));
+}
+
 export async function tokenize(content: string): Promise<number[]> {
-  const r = await postJson<{ tokens: number[] }>("/tokenize", {
+  const r = await modelJson<{ tokens: number[] }>("/tokenize", {
     content,
     add_special: false,
   });
@@ -68,7 +81,7 @@ export async function tokenize(content: string): Promise<number[]> {
 }
 
 export async function detokenize(tokens: number[]): Promise<string> {
-  const r = await postJson<{ content: string }>("/detokenize", { tokens });
+  const r = await modelJson<{ content: string }>("/detokenize", { tokens });
   return r.content;
 }
 
@@ -76,7 +89,7 @@ export async function applyTemplate(
   messages: ChatMessage[],
   kwargs: Record<string, unknown> = {},
 ): Promise<string> {
-  const r = await postJson<{ prompt: string }>("/apply-template", {
+  const r = await modelJson<{ prompt: string }>("/apply-template", {
     messages,
     chat_template_kwargs: kwargs,
   });
@@ -93,7 +106,7 @@ export async function completion(
     post_sampling_probs: false,
     ...body,
   };
-  return slots.run(() => postJson<CompletionResponse>("/completion", payload));
+  return modelJson<CompletionResponse>("/completion", payload);
 }
 
 export interface Props {

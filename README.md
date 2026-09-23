@@ -55,7 +55,7 @@ bun run start -- --base-url http://localhost:8081 --model my-model
 | `-c, --concurrency <n>` | `S1_CONCURRENCY` | `2` | max in-flight completions (match llama.cpp `--parallel`) |
 | `-t, --timeout-ms <n>` | `S1_TIMEOUT_MS` | `180000` | per-request timeout |
 | `-n, --n-probs <n>` | `S1_N_PROBS` | `64` | top-N tokens returned per distribution read |
-| `--prime-min-tokens <n>` | `S1_PRIME_MIN_TOKENS` | `0` | prime the shared prefix for KV reuse; `0` = always, negative = never |
+| `--prime-min-tokens <n>` | `S1_PRIME_MIN_TOKENS` | `256` | min shared prefix to prime; `0` = always, negative = never |
 
 CLI flags override the environment variables, which override the defaults.
 `--help` prints the same table.
@@ -173,7 +173,7 @@ S1_LIVE=1 bun test                           # + live tests against the model
 bun run scripts/smoke.ts                     # one-shot evaluation, prints JSON
 bun run compare                              # per-question vs single-pass, side by side
 bun run scripts/measure-prefix-cache.ts      # prompt-cache reuse law on this server
-bun run scripts/measure-prime-e2e.ts         # run priming off vs on, same answers
+bun run scripts/measure-prime-crossover.ts   # where priming starts to pay for itself
 ```
 
 All of the scripts accept the same flags as the server, e.g.
