@@ -22,16 +22,24 @@ test("commonPrefixLength is a prefix of all inputs", () => {
   expect(commonPrefixLength(all)).toBe(2);
 });
 
-test("shouldPrime requires two questions and a long enough prefix", () => {
+test("shouldPrime always primes once a request needs two calls", () => {
   const saved = config.primeMinTokens;
   try {
-    config.primeMinTokens = 128;
+    // Default: prime for any shared prefix, however short. There is no length
+    // below which caching stops working, so there is no length to gate on.
+    config.primeMinTokens = 0;
     expect(shouldPrime(1, 500)).toBe(false); // single question: nothing to share
+    expect(shouldPrime(2, 1)).toBe(true); // the triage case, 66 tokens, primes
+    expect(shouldPrime(6, 66)).toBe(true);
+    expect(shouldPrime(6, 2268)).toBe(true);
+
+    // A positive value is only a deliberate floor, not the default policy.
+    config.primeMinTokens = 128;
     expect(shouldPrime(6, 127)).toBe(false);
     expect(shouldPrime(6, 128)).toBe(true);
-    expect(shouldPrime(2, 2268)).toBe(true);
 
-    config.primeMinTokens = 0; // explicit off switch
+    // Negative is the explicit off switch.
+    config.primeMinTokens = -1;
     expect(shouldPrime(6, 100_000)).toBe(false);
   } finally {
     config.primeMinTokens = saved;

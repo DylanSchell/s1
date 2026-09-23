@@ -21,11 +21,18 @@ export interface Config {
    */
   nProbs: number;
   /**
-   * Minimum token length of the prefix shared by every question prompt before
-   * s1 spends one extra call priming the KV cache with it. llama.cpp only
-   * restores a cached prompt when the cached tokens are a prefix of the
-   * incoming prompt, so sibling questions (shared state, divergent tails) never
-   * hit the cache on their own. `0` disables priming.
+   * Prime the KV cache with the prefix every question prompt shares, whenever a
+   * request needs more than one completion call — i.e. as soon as there are two
+   * or more questions.
+   *
+   * llama.cpp only restores a cached prompt when the cached tokens are a prefix
+   * of the incoming prompt. A fan-out of sibling questions (shared state,
+   * divergent tails) is therefore never a cache hit on its own: without priming,
+   * each of the Q calls re-prefills the shared L tokens. Priming costs one extra
+   * call and saves L x (Q - 1) prefill tokens, so it is on by default.
+   *
+   * `0` = always prime; a negative value disables priming. A value above 0 is
+   * only a floor, for deliberately skipping priming on very short prefixes.
    */
   primeMinTokens: number;
 }
@@ -43,7 +50,7 @@ export const config: Config = {
   timeoutMs: Number(process.env.S1_TIMEOUT_MS ?? 180_000),
   port: Number(process.env.S1_PORT ?? 8090),
   nProbs: Number(process.env.S1_N_PROBS ?? process.env.S1_MAX_PROBS ?? 64),
-  primeMinTokens: Number(process.env.S1_PRIME_MIN_TOKENS ?? 128),
+  primeMinTokens: Number(process.env.S1_PRIME_MIN_TOKENS ?? 0),
 };
 
 export function upstream(path: string): string {
@@ -75,7 +82,7 @@ Options:
   -c, --concurrency <n>   max in-flight completions    [S1_CONCURRENCY] default 2
   -t, --timeout-ms <n>    per-request timeout (ms)     [S1_TIMEOUT_MS]  default 180000
   -n, --n-probs <n>       top-N per distribution read  [S1_N_PROBS]     default 64
-      --prime-min-tokens <n>  min shared prefix to prime [S1_PRIME_MIN_TOKENS] default 128 (0 = off)
+      --prime-min-tokens <n>  min shared prefix to prime; 0 = always, <0 = never [S1_PRIME_MIN_TOKENS] default 0
   -h, --help              show this help
 
 CLI flags override the S1_* environment variables.`;
@@ -90,10 +97,10 @@ function positiveNumber(flag: string, raw: string): number {
   return n;
 }
 
-function nonNegativeNumber(flag: string, raw: string): number {
+function integer(flag: string, raw: string): number {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) {
-    throw new CliError(`--${flag} must be zero or greater (got "${raw}")`);
+  if (!Number.isInteger(n)) {
+    throw new CliError(`--${flag} must be an integer (got "${raw}")`);
   }
   return n;
 }
@@ -134,7 +141,7 @@ export function applyCli(values: Record<string, string | boolean | undefined>): 
     config.nProbs = positiveNumber("n-probs", values["n-probs"]);
   }
   if (typeof values["prime-min-tokens"] === "string") {
-    config.primeMinTokens = nonNegativeNumber("prime-min-tokens", values["prime-min-tokens"]);
+    config.primeMinTokens = integer("prime-min-tokens", values["prime-min-tokens"]);
   }
 }
 

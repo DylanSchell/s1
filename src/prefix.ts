@@ -30,12 +30,17 @@ export async function sharedPromptPrefix(
 }
 
 /**
- * Whether priming is worth an extra call: at least two questions, and a shared
- * prefix long enough that one prefill of it is cheaper than re-prefilling it
- * for every question. `config.primeMinTokens = 0` disables priming entirely.
+ * Whether to spend the extra call priming the shared prefix.
+ *
+ * Priming is worth it as soon as a request needs more than one call: it costs
+ * one prefill of L tokens and saves L tokens on every one of the Q questions,
+ * so the net saving is L x (Q - 1), which is positive for any Q >= 2 and any
+ * L > 0. There is no length below which caching stops working — llama.cpp has
+ * no such minimum — so `primeMinTokens` is only ever an explicit opt-out
+ * (negative) or a deliberate floor (positive).
  */
 export function shouldPrime(questionCount: number, sharedLength: number): boolean {
-  if (config.primeMinTokens <= 0) return false;
+  if (config.primeMinTokens < 0) return false;
   return questionCount >= 2 && sharedLength >= config.primeMinTokens;
 }
 

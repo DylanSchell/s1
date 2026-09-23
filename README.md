@@ -55,7 +55,7 @@ bun run start -- --base-url http://localhost:8081 --model my-model
 | `-c, --concurrency <n>` | `S1_CONCURRENCY` | `2` | max in-flight completions (match llama.cpp `--parallel`) |
 | `-t, --timeout-ms <n>` | `S1_TIMEOUT_MS` | `180000` | per-request timeout |
 | `-n, --n-probs <n>` | `S1_N_PROBS` | `64` | top-N tokens returned per distribution read |
-| `--prime-min-tokens <n>` | `S1_PRIME_MIN_TOKENS` | `128` | min shared prompt prefix length to prime for KV reuse (`0` = off) |
+| `--prime-min-tokens <n>` | `S1_PRIME_MIN_TOKENS` | `0` | prime the shared prefix for KV reuse; `0` = always, negative = never |
 
 CLI flags override the environment variables, which override the defaults.
 `--help` prints the same table.

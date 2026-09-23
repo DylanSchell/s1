@@ -38,7 +38,7 @@ async function timeOnce(state: unknown, minTokens: number) {
 
 async function bench(label: string, state: unknown, reps = 2) {
   // Flush, so the first measured run is not riding on someone else's cache.
-  config.primeMinTokens = 0;
+  config.primeMinTokens = -1;
   await evaluate({ state: bigState(200), questions: QUESTIONS });
 
   const off: number[] = [];
@@ -47,8 +47,8 @@ async function bench(label: string, state: unknown, reps = 2) {
   let onValues = "";
   for (let r = 0; r < reps; r++) {
     const s = state;
-    const a = await timeOnce(s, 0);
-    const b = await timeOnce(s, 128);
+    const a = await timeOnce(s, -1); // priming disabled
+    const b = await timeOnce(s, 0); // priming always on
     off.push(a.ms);
     on.push(b.ms);
     refValues = a.values;

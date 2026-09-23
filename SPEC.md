@@ -63,9 +63,8 @@ Response:
    fan-out of sibling questions shares a head and then diverges — so on its own
    the cache never hits. s1 therefore **primes** the shared prefix with one
    extra call (reported as `timing.primeTokens`) and then asks the questions one
-   at a time, which is what makes every one of them reuse it. Priming is skipped
-   entirely when the shared prefix is shorter than `--prime-min-tokens`
-   (default 128, `0` disables), or when there is only one question.
+   at a time, which is what makes every one of them reuse it. Priming happens
+   whenever there is more than one question; `--prime-min-tokens -1` opts out.
 2. Tokenize every surface form of every option (`opt`, `" "+opt`, plus
    capitalized variants — tokenizers treat `yes`/`Yes`/` yes` as distinct tokens).
    Forms are looked up in the *same* distribution, so they cost no extra calls.
@@ -159,15 +158,28 @@ Measured on `examples/triage-request.json` (6 questions): per-question = 6 calls
 
 ## Prefix priming (per-question mode)
 
-Measured on a ~1.4k-token state with 6 questions, through the public API
+Measured through the public API with 6 questions, priming merely toggled
 (`scripts/measure-prime-e2e.ts`):
 
-| | prefill tokens | wall |
-|---|---|---|
-| priming off | 12,797 | 10,425 ms |
-| priming on | 2,206 | 3,428 ms |
+| state | shared prefix | off | on | |
+|---|---|---|---|---|
+| triage example | 66 tok | 1825 ms | 1804 ms | 1.01x |
+| synthetic | ~1340 tok | 10,209 ms | 3440 ms | 2.97x |
 
-**3.0× faster, answers identical.** Two conditions make it work:
+Answers are identical in both cases. On the large state prefill drops from
+12,797 to 2,206 tokens.
+
+**Priming is never gated on prefix length.** It costs one prefill of `L` tokens
+and saves `L` tokens on each of the `Q` questions, so the net saving is
+`L x (Q - 1)` — positive for any `Q >= 2` and any `L > 0`. There is no length
+below which caching stops working; llama.cpp has no such minimum. So s1 primes
+whenever a request needs more than one call, and `--prime-min-tokens -1` only
+exists as an explicit opt-out. Short prefixes are *neutral* rather than harmful:
+66 tokens of extra prefill buys the same back on each of the five remaining
+questions; the win only becomes large once the shared prefix dominates the
+prompt.
+
+Two conditions make priming work:
 
 1. the prime is issued and awaited *before* any question is scored, so the
    prefix is already cached; and
@@ -177,9 +189,9 @@ Measured on a ~1.4k-token state with 6 questions, through the public API
    serial + primed reused the prefix for all 6 questions, concurrent + primed
    for only 3.
 
-For a short state the extra call is not worth it, so priming is skipped below
-`--prime-min-tokens`; on the triage example (66-token prefix) the request is
-bit-identical to unprimed and no prime call is made.
+Known limitation: serialisation only guarantees slot locality while s1 is the
+only traffic. Two `evaluate` calls in flight at once can interleave across the
+`--parallel` slots and lose part of the reuse.
 
 ## Default posture
 
