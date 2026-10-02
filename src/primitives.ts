@@ -88,6 +88,14 @@ export interface Answer {
   margin: number;
   strategy: Strategy;
   totalRaw: number;
+  /**
+   * False when the raw next-token distribution could not be read (e.g. a
+   * speculatively-decoded token that llama.cpp does not report probs for).
+   * When false, `probabilities` is empty, `confidence`/`topProbability` are 0,
+   * and `value`/`score` come from the generated (constrained) output, not the
+   * missing distribution. Defaults to true when omitted.
+   */
+  probabilitiesAvailable?: boolean;
   /** /completion calls attributable to this answer (0 in single-pass mode). */
   calls: number;
   latencyMs: number;
@@ -227,6 +235,27 @@ export async function scorePrepared(
  */
 export function decorateAnswer(q: Question, answer: Answer): Answer {
   const labels = questionLabels(q);
+
+  // When the raw distribution is unavailable (probabilitiesAvailable === false),
+  // `value` is the generated (constrained) answer and must be preserved. Only
+  // the probability-derived fields (confidence, topProbability, noul, score)
+  // are left at their sentinel/absent values.
+  if (answer.probabilitiesAvailable === false) {
+    if (q.type === "choice") {
+      answer.choice = answer.value;
+    } else if (q.type === "score") {
+      const idx = Math.max(0, labels.indexOf(answer.value));
+      answer.legend = Object.fromEntries(labels.map((lvl, i) => [String(i), lvl]));
+      const k = labels.length;
+      answer.score = idx;
+      answer.scoreNormalized = k > 1 ? idx / (k - 1) : 0;
+      answer.value = labels[idx] ?? "";
+    }
+    answer.topProbability = 0;
+    answer.margin = 0;
+    answer.confidence = 0;
+    return answer;
+  }
 
   if (q.type === "noul") {
     const p = answer.probabilities["true"] ?? 0;

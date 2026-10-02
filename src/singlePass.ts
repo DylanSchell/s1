@@ -90,9 +90,14 @@ function firstTokenDistribution(
   for (const v of Object.values(raw)) total += v;
 
   const probabilities: Record<string, number> = {};
-  for (const op of field.optionPaths) {
-    probabilities[op.option] =
-      total > 0 ? raw[op.option]! / total : 1 / field.optionPaths.length;
+  // Only emit a distribution when the raw read actually carried mass. A zero
+  // total means the field's first token was speculatively decoded (llama.cpp
+  // reports no top_logprobs for accepted draft tokens), so we must not fabricate
+  // a uniform distribution — the caller flags it as unavailable instead.
+  if (total > 0) {
+    for (const op of field.optionPaths) {
+      probabilities[op.option] = raw[op.option]! / total;
+    }
   }
   return { probabilities, rawTotal: total };
 }
@@ -182,6 +187,10 @@ export async function answerAll(
       : { probabilities: {}, rawTotal: 0 };
     const sorted = Object.entries(dist.probabilities).sort((a, b) => b[1] - a[1]);
 
+    // When the raw read carried no mass the field's token was speculatively
+    // decoded and llama.cpp reported no distribution. Keep the grammar-derived
+    // value but flag the probabilities as unavailable (no silent uniform).
+    const available = dist.rawTotal > 0;
     const answer: Answer = {
       id: f.question.id,
       type: f.question.type,
@@ -194,6 +203,7 @@ export async function answerAll(
       totalRaw: dist.rawTotal,
       calls: 0,
       latencyMs: Math.round(performance.now() - started),
+      probabilitiesAvailable: available,
     };
     if (chosen < 0) answer.error = "generated tokens did not match an option";
     answers.push(decorateAnswer(f.question, answer));

@@ -160,6 +160,17 @@ Properties:
   otherwise. They are also **contextual**: a field is conditioned on the rest of
   the question list and on the answers already written for earlier fields, so the
   numbers differ from `per-question` even when the argmax agrees.
+- **Known limitation: speculative decoding drops per-field probs.** llama.cpp
+  only reports `top_logprobs` for the token the *target* model samples, not for
+  tokens accepted from the draft model (`// TODO: set result.probs` in
+  `server-context.cpp`). Under `--spec-type` (e.g. deepseek's `draft-dspark`)
+  every field after the first is a draft-accepted token, so its raw read is empty
+  and `probabilitiesAvailable` is `false`. In that case s1 reports `{}`
+  probabilities, `confidence`/`topProbability`/`margin` of 0, and keeps the
+  grammar-derived `value`/`choice`/`noul`/`score` (which are correct — they come
+  from the constrained output, not the missing distribution). It never fabricates
+  a uniform distribution. `per-question` is unaffected (one target-sampled token
+  per read).
 - **The prompt must keep each question's type signal.** `score` questions are
   rendered `[ordered scale: low < medium < high]` and `noul` as `[yes | no]`;
   rendering levels as `[low | medium | high]` reads as *unordered* and makes the
