@@ -26,8 +26,9 @@ const EXAMPLE = (await Bun.file(
   new URL("../examples/triage-request.json", import.meta.url),
 ).json()) as { state: string; questions: unknown[] };
 
-const BASE_QUESTIONS = EXAMPLE.questions;
+const BASE_QUESTIONS: Record<string, any> = EXAMPLE.questions;
 const BASE_STATE = EXAMPLE.state;
+const BASE_ARRAY: any[] = Object.entries(BASE_QUESTIONS).map(([id, q]) => ({ ...q, id }));
 
 const mkState = (k: number) => (uuid: string) => `${BASE_STATE}\n${"detail ".repeat(k)}ref ${uuid}`;
 
@@ -36,11 +37,14 @@ const mkState = (k: number) => (uuid: string) => `${BASE_STATE}\n${"detail ".rep
  * copy silently drifted: `score` questions take `levels`, not `options`, so two
  * of the six were failing validation and the sweep was really measuring Q=4.
  */
-const mkQuestions = (q: number) =>
-  Array.from({ length: q }, (_, i) => ({
-    ...(BASE_QUESTIONS[i % BASE_QUESTIONS.length] as object),
-    id: `q${i}`,
-  }));
+const mkQuestions = (q: number) => {
+  const out: Record<string, any> = {};
+  for (let i = 0; i < q; i++) {
+    const base = BASE_ARRAY[i % BASE_ARRAY.length]!;
+    out[`q${i}`] = { ...base, id: `q${i}` };
+  }
+  return out;
+};
 
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
@@ -50,12 +54,14 @@ interface Run {
   errors: string[];
 }
 
-async function run(priming: number, state: string, questions: unknown[]): Promise<Run> {
+async function run(priming: number, state: string, questions: Record<string, any>): Promise<Run> {
   config.primeMinTokens = priming;
   const t0 = performance.now();
   const out = await evaluate({ state, questions } as never);
   const ms = Math.round(performance.now() - t0);
-  const errors = out.answers.filter((a) => a.error).map((a) => a.error!);
+  const errors = Object.values(out.answers)
+    .filter((a) => a.error)
+    .map((a) => a.error!);
   return { ms, primeTokens: out.timing.primeTokens ?? 0, errors };
 }
 

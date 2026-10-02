@@ -12,7 +12,7 @@ const server = Bun.serve({
       return Response.json({ ok: true, model: config.model });
     }
 
-    if (url.pathname === "/v1/evaluate") {
+    if (url.pathname === "/v1/systemone") {
       if (req.method !== "POST") {
         return new Response("method not allowed", { status: 405 });
       }

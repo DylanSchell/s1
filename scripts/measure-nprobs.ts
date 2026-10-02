@@ -15,25 +15,29 @@ const triage = await Bun.file(
   new URL("../examples/triage-request.json", import.meta.url),
 ).json();
 const state = triage.state;
+const triageQuestions: Question[] = Object.entries(triage.questions).map(([id, q]) => ({
+  ...(q as object),
+  id,
+}) as Question);
 const smokeState = {
   review: "This product exceeded my expectations. Shipping was slow though.",
   user: { name: "Dylan", plan: "pro" },
 };
 
 const smokeQuestions: Question[] = [
-  { id: "smoke/positive", type: "noul", statement: "The review is positive overall." },
-  { id: "smoke/shipping", type: "noul", statement: "The customer complains about shipping." },
+  { id: "smoke/positive", type: "noul", instructions: "The review is positive overall." },
+  { id: "smoke/shipping", type: "noul", instructions: "The customer complains about shipping." },
   {
     id: "smoke/sentiment",
     type: "choice",
-    prompt: "Overall sentiment",
-    options: ["positive", "negative", "neutral"],
+    instructions: "Overall sentiment",
+    criteria: { positive: null, negative: null, neutral: null },
   },
   {
     id: "smoke/urgency",
     type: "score",
-    prompt: "How urgently should support follow up?",
-    levels: ["none", "low", "medium", "high"],
+    instructions: "How urgently should support follow up?",
+    criteria: ["none", "low", "medium", "high"],
   },
 ];
 
@@ -41,19 +45,19 @@ const smokeQuestions: Question[] = [
 const tone: Question = {
   id: "tone",
   type: "choice",
-  prompt: "Tone of the review",
-  options: ["very positive", "very negative", "neutral"],
+  instructions: "Tone of the review",
+  criteria: { "very positive": null, "very negative": null, neutral: null },
 };
 
 function userContentFor(q: Question): string {
   const labels = questionLabels(q);
   switch (q.type) {
     case "noul":
-      return noulUserContent(q.statement);
+      return noulUserContent(q.instructions);
     case "choice":
-      return choiceUserContent(q.prompt, labels);
+      return choiceUserContent(q.instructions, labels);
     case "score":
-      return scoreUserContent(q.prompt, labels);
+      return scoreUserContent(q.instructions, labels);
   }
 }
 
@@ -136,7 +140,7 @@ console.log("A. Rank of every token the trie reads (n_probs must reach the max)"
 console.log("   * = token carries >= 1e-3 probability");
 console.log("=".repeat(78));
 
-for (const q of triage.questions as Question[]) await nodeRanks(q.id, state, q);
+for (const q of triageQuestions) await nodeRanks(q.id, state, q);
 for (const q of smokeQuestions) await nodeRanks(q.id, smokeState, q);
 await nodeRanks("tone", smokeState, tone);
 
@@ -168,7 +172,7 @@ console.log("\n" + "=".repeat(78));
 console.log("C. Cost of n_probs: latency and response payload (warm prompt, 3 runs)");
 console.log("=".repeat(78));
 {
-  const q = triage.questions[0] as Question;
+  const q = triageQuestions[0]!;
   const prompt = await applyTemplate(buildMessages(state, userContentFor(q)), {
     enable_thinking: false,
   });

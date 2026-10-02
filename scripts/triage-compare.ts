@@ -9,13 +9,13 @@ const req = await Bun.file(
 
 function brief(label: string, out: Awaited<ReturnType<typeof evaluate>>) {
   console.log(`\n== ${label} (${out.mode}) calls=${out.timing.calls} ${out.timing.totalMs}ms`);
-  for (const a of out.answers) {
+  for (const a of Object.values(out.answers)) {
     const probs = Object.entries(a.probabilities)
       .sort((x, y) => y[1] - x[1])
       .map(([k, v]) => `${k}=${v.toFixed(3)}`)
       .join(" ");
     console.log(
-      `  ${a.id.padEnd(16)} ${String(a.value).padEnd(22)} conf=${a.confidence.toFixed(3)} ${a.strategy}` +
+      `  ${a.id.padEnd(16)} ${String(a.value).padEnd(22)} conf=${a.confidence.toFixed(3)} top=${a.topProbability.toFixed(3)} ${a.strategy}` +
         (a.error ? ` ERROR=${a.error}` : "") +
         `\n      ${probs}`,
     );
@@ -30,7 +30,7 @@ const [per, single] = [
   await evaluate({ ...req, options: { mode: "single-pass" } }),
 ];
 console.log("\n== agreement");
-for (const a of per.answers) {
-  const b = single.answers.find((x) => x.id === a.id)!;
+for (const a of Object.values(per.answers)) {
+  const b = single.answers[a.id]!;
   console.log(`  ${a.id.padEnd(16)} ${a.value === b.value ? "same" : `DIFF per=${a.value} single=${b.value}`}`);
 }

@@ -4,7 +4,7 @@
 llama-swap / llama.cpp. It does **not** train or modify a model; it turns
 `state + typed questions` into a constrained, probability-bearing answer set.
 
-Model is pinned (default `qwen38-flash-next`) via the llama-swap direct route
+Model is pinned (default `deepseek-v4-flash-0731`) via the llama-swap direct route
 `/upstream/{model}/...` so requests never trigger a model swap. Endpoint, model
 and the other knobs are CLI flags (and `S1_*` env vars) — see
 [README.md](./README.md#start-the-server) for install, start-up and the
@@ -12,18 +12,29 @@ and the other knobs are CLI flags (and `S1_*` env vars) — see
 
 ## Contract
 
+The HTTP surface follows the **TypeSafe `/v1/systemone`** API (the same contract
+llama.cpp implements in `tools/server`), so s1 is a drop-in for a decision
+model. The `options` block and the per-answer extras (`strategy`, `totalRaw`,
+`margin`, `topProbability`, `scoreNormalized`, `calls`, `latencyMs`, `error`) are
+s1 extensions; the core request/response is TypeSafe-shaped.
+
 ```
-POST /v1/evaluate
+POST /v1/systemone
 {
   "state": <string | object | array>,
-  "questions": [
-    { "id": "q1", "type": "noul",   "statement": "The review is positive." },
-    { "id": "q2", "type": "choice", "prompt": "Sentiment", "options": ["positive","negative","neutral"] },
-    { "id": "q3", "type": "score",  "prompt": "Urgency", "levels": ["none","low","medium","high"] }
-  ],
-  "options": { "temperature": 1.0, "nProbs": 512, "mode": "per-question" }
+  "questions": {                       // MAP, keyed by question id
+    "q1": { "type": "noul",   "instructions": "The review is positive." },
+    "q2": { "type": "choice", "instructions": "Sentiment", "criteria": {"positive":null,"negative":null,"neutral":null} },
+    "q3": { "type": "score",  "instructions": "Urgency", "criteria": ["none","low","medium","high"] }
+  },
+  "options": { "temperature": 1.0, "nProbs": 64, "mode": "per-question" }   // s1 extension
 }
 ```
+
+`instructions` may be a string, object or array. `criteria` depends on `type`:
+`choice` is an object of option→description (nullable); `score` is an array of
+2–10 level descriptions, lowest first; `noul` is an optional `{false,true}`
+object.
 
 `options.mode` selects the decoding strategy:
 
@@ -32,16 +43,16 @@ POST /v1/evaluate
 | `per-question` (default) | 1 + shared-prefix nodes per question | independent score per question |
 | `single-pass` | **1 for the whole request** | every question answered in one grammar-constrained document |
 
-Response:
+Response (`answers` is a MAP keyed by question id, matching TypeSafe):
 
 ```jsonc
 {
-  "answers": [
-    { "id":"q1","type":"noul",  "probability":0.998,"confidence":0.996,"strategy":"raw" },
-    { "id":"q2","type":"choice","value":"positive","probabilities":{...},"confidence":0.999,"strategy":"raw" },
-    { "id":"q3","type":"score", "value":"medium","score":2.1,"probabilities":{...},"confidence":0.6,"strategy":"raw","calls":1 }
-  ],
-  "model": "qwen38-flash-next",
+  "answers": {
+    "q1": { "type":"noul",  "noul":0.998,"probabilities":{...},"confidence":0.996,"strategy":"raw" },
+    "q2": { "type":"choice","choice":"positive","probabilities":{...},"confidence":0.999,"strategy":"raw" },
+    "q3": { "type":"score", "score":2.1,"legend":{"0":"none",...},"probabilities":{"0":...,},"confidence":0.6,"strategy":"raw","calls":1 }
+  },
+  "model": "deepseek-v4-flash-0731",
   "mode": "per-question",
   "timing": { "totalMs": 123.4, "calls": 3 }
 }
@@ -51,8 +62,14 @@ Response:
 
 | Jev | s1 `type` | Output |
 |---|---|---|
-| Choice | `choice` | `value`, `probabilities`, `confidence` |
-| Score | `score` | `value`, `score` (expected level, 0..1), `probabilities` |
+| Choice | `choice` | `choice`, `probabilities`, `confidence` |
+| Score | `score` | `score` (expected level index), `legend`, `probabilities`, `confidence` |
+| Noul | `noul` | `noul` (P(true)), `probabilities` |
+
+`confidence` uses the TypeSafe formulas (`(p_max−uniform)/(1−uniform)` for
+choice; a distance-to-mode formula for score). s1 keeps its former top-probability
+`confidence` as the extra `topProbability`, and its former normalized score as
+`scoreNormalized`.
 | Noul | `noul` | `probability` (0..1), `confidence` |
 
 ## Scoring core (verified against llama.cpp)

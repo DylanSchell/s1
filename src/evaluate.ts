@@ -7,18 +7,26 @@ import {
   type EvaluateMode,
   type PreparedQuestion,
   type Question,
+  type QuestionsMap,
 } from "./primitives.ts";
 import { primePrefix, sharedPromptPrefix, shouldPrime } from "./prefix.ts";
 import { answerAll } from "./singlePass.ts";
 
 export interface EvaluateRequest {
   state: unknown;
-  questions: Question[];
+  /** TypeSafe/llama.cpp: a map of question id -> question. */
+  questions: QuestionsMap;
   options?: AnswerOptions;
 }
 
+/** Convert the map-of-questions request into the array form the engine uses. */
+export function toQuestionArray(questions: QuestionsMap): Question[] {
+  return Object.entries(questions).map(([id, q]) => ({ ...q, id }));
+}
+
 export interface EvaluateResult {
-  answers: Answer[];
+  /** Map of question id -> answer, matching the TypeSafe/llama.cpp shape. */
+  answers: Record<string, Answer>;
   model: string;
   mode: EvaluateMode;
   timing: {
@@ -29,6 +37,12 @@ export interface EvaluateResult {
   };
 }
 
+function toAnswerMap(answers: Answer[]): Record<string, Answer> {
+  const out: Record<string, Answer> = {};
+  for (const a of answers) out[a.id] = a;
+  return out;
+}
+
 function errorAnswer(q: Question, message: string): Answer {
   return {
     id: q.id,
@@ -36,6 +50,7 @@ function errorAnswer(q: Question, message: string): Answer {
     value: "",
     probabilities: {},
     confidence: 0,
+    topProbability: 0,
     margin: 0,
     strategy: "raw",
     totalRaw: 0,
@@ -53,26 +68,29 @@ interface Slot {
 
 export async function evaluate(req: EvaluateRequest): Promise<EvaluateResult> {
   if (!req || typeof req !== "object") throw new Error("body must be an object");
-  if (!Array.isArray(req.questions)) throw new Error("questions must be an array");
+  if (!req.questions || typeof req.questions !== "object" || Array.isArray(req.questions)) {
+    throw new Error("questions must be a map (object) of id -> question");
+  }
 
+  const questions = toQuestionArray(req.questions);
   const started = performance.now();
   const mode: EvaluateMode = req.options?.mode ?? "per-question";
 
   if (mode === "single-pass") {
     let answers: Answer[];
     try {
-      answers = await answerAll(req.state, req.questions, req.options);
+      answers = await answerAll(req.state, questions, req.options);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      answers = req.questions.map((q) => errorAnswer(q, message));
+      answers = questions.map((q) => errorAnswer(q, message));
     }
     return {
-      answers,
+      answers: toAnswerMap(answers),
       model: config.model,
       mode,
       timing: {
         totalMs: Math.round(performance.now() - started),
-        calls: req.questions.length > 0 ? 1 : 0,
+        calls: questions.length > 0 ? 1 : 0,
       },
     };
   }
@@ -80,7 +98,7 @@ export async function evaluate(req: EvaluateRequest): Promise<EvaluateResult> {
   // Build every prompt first (no forward passes), so the shared prefix can be
   // primed before any of them is scored.
   const slots: Slot[] = await Promise.all(
-    req.questions.map(async (q): Promise<Slot> => {
+    questions.map(async (q): Promise<Slot> => {
       try {
         return { question: q, prep: await prepareQuestion(req.state, q) };
       } catch (e) {
@@ -133,5 +151,5 @@ export async function evaluate(req: EvaluateRequest): Promise<EvaluateResult> {
   };
   if (primeTokens > 0) timing.primeTokens = primeTokens;
 
-  return { answers, model: config.model, mode, timing };
+  return { answers: toAnswerMap(answers), model: config.model, mode, timing };
 }

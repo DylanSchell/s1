@@ -28,7 +28,7 @@ if ! curl -fsS -o /dev/null "$BASE_URL/health"; then
   exit 1
 fi
 
-response="$(curl -sS -X POST "$BASE_URL/v1/evaluate" \
+response="$(curl -sS -X POST "$BASE_URL/v1/systemone" \
   -H 'content-type: application/json' \
   --data-binary "@$REQUEST_FILE")"
 

@@ -16,7 +16,7 @@ in [SPEC.md](./SPEC.md).
 - **jq** — required by the validation script.
 - **llama-swap** or llama.cpp's server running with the model you intend to use
   already loaded. Defaults assume `http://localhost:8080` and model id
-  `qwen38-flash-next`.
+  `deepseek-v4-flash-0731`.
 
 Confirm the model endpoint is reachable before starting s1:
 
@@ -50,7 +50,7 @@ bun run start -- --base-url http://localhost:8081 --model my-model
 | Flag | Env var | Default | Meaning |
 |---|---|---|---|
 | `-u, --base-url <url>` | `S1_BASE_URL` | `http://localhost:8080` | llama-swap base URL |
-| `-m, --model <id>` | `S1_MODEL` | `qwen38-flash-next` | pinned model identifier |
+| `-m, --model <id>` | `S1_MODEL` | `deepseek-v4-flash-0731` | pinned model identifier |
 | `-p, --port <n>` | `S1_PORT` | `8090` | HTTP port s1 listens on |
 | `-c, --concurrency <n>` | `S1_CONCURRENCY` | `2` | max in-flight completions (match llama.cpp `--parallel`) |
 | `-t, --timeout-ms <n>` | `S1_TIMEOUT_MS` | `180000` | per-request timeout |
@@ -63,7 +63,7 @@ CLI flags override the environment variables, which override the defaults.
 On start-up the server prints the resolved configuration:
 
 ```
-s1 listening on :8090  model=qwen38-flash-next  upstream=http://localhost:8080/upstream/qwen38-flash-next  concurrency=2
+s1 listening on :8090  model=deepseek-v4-flash-0731  upstream=http://localhost:8080/upstream/deepseek-v4-flash-0731  concurrency=2
 ```
 
 ## Validate that it works
@@ -72,7 +72,7 @@ s1 listening on :8090  model=qwen38-flash-next  upstream=http://localhost:8080/u
 
 ```bash
 curl -s http://localhost:8090/health
-# {"ok":true,"model":"qwen38-flash-next"}
+# {"ok":true,"model":"deepseek-v4-flash-0731"}
 ```
 
 ### 2. End-to-end with `scripts/evaluate.sh`
@@ -81,7 +81,7 @@ This is the quickest way to prove the whole path (HTTP → prompt → llama.cpp 
 constrained answer) works. The script:
 
 1. probes `GET /health` and fails early if s1 is not running,
-2. `POST`s a request file to `/v1/evaluate`,
+2. `POST`s a request file to `/v1/systemone`,
 3. pretty-prints the JSON response with `jq`,
 4. exits non-zero if the API returned an error.
 
@@ -107,7 +107,7 @@ Expected shape (values depend on your model):
     { "id": "can_sign_in", "type": "noul", "value": "no", "probability": 0.0014, "confidence": 0.997, "strategy": "raw" }
     // ...
   ],
-  "model": "qwen38-flash-next",
+  "model": "deepseek-v4-flash-0731",
   "mode": "per-question",
   "timing": { "totalMs": 1513, "calls": 6 }
 }
@@ -139,7 +139,7 @@ trie, and that `single-pass` and `per-question` agree.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/health` | Liveness check and the pinned model id. |
-| `POST` | `/v1/evaluate` | Score typed questions against a caller-supplied state. |
+| `POST` | `/v1/systemone` | Score typed questions against a caller-supplied state (TypeSafe/llama.cpp-compatible). |
 
 Request and response schemas, the `choice` / `score` / `noul` primitives, and
 the `options.mode` switch are documented in

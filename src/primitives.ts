@@ -5,41 +5,86 @@ import {
   choiceUserContent,
   noulUserContent,
   scoreUserContent,
+  serializeInstructions,
 } from "./prompt.ts";
 import { scoreOptions, type Strategy } from "./scoring.ts";
 
-export interface NoulQuestion {
-  id: string;
+/**
+ * TypeSafe / llama.cpp `/v1/systemone` question. The request carries a MAP of
+ * id → question, so `id` is the map key; `instructions` may be a string, object
+ * or array; `criteria` shape depends on `type`:
+ *   - choice: object of option → description|null
+ *   - score:  array of 2–10 level descriptions, lowest first
+ *   - noul:   optional object {false, true}
+ */
+/** Wire question: the map value, no id (id is the map key). */
+export interface NoulSpec {
   type: "noul";
-  statement: string;
+  instructions: unknown;
+  criteria?: Record<string, unknown>;
 }
-export interface ChoiceQuestion {
-  id: string;
+export interface ChoiceSpec {
   type: "choice";
-  prompt: string;
-  options: string[];
+  instructions: unknown;
+  criteria: Record<string, unknown>;
 }
-export interface ScoreQuestion {
-  id: string;
+export interface ScoreSpec {
   type: "score";
-  prompt: string;
-  levels: string[];
+  instructions: unknown;
+  criteria: unknown[];
 }
-export type Question = NoulQuestion | ChoiceQuestion | ScoreQuestion;
+export type QuestionSpec = NoulSpec | ChoiceSpec | ScoreSpec;
+
+/** Internal question: a wire spec plus its id. */
+export type Question = QuestionSpec & { id: string };
+
+/** The wire request shape: map of id -> question. */
+export type QuestionsMap = Record<string, QuestionSpec>;
+
+/**
+ * The canonical answer options for a question, in schema order:
+ *   - choice: the criteria keys
+ *   - score:  the criteria array (level descriptions)
+ *   - noul:   ["true", "false"] (criteria may carry descriptions, ignored here)
+ */
+export function questionLabels(q: Question): string[] {
+  switch (q.type) {
+    case "noul":
+      return ["true", "false"];
+    case "choice": {
+      const keys = Object.keys(q.criteria ?? {});
+      if (!keys.length) throw new Error(`question ${q.id}: criteria must be a non-empty object`);
+      return keys;
+    }
+    case "score": {
+      if (!q.criteria || q.criteria.length < 2) {
+        throw new Error(`question ${q.id}: at least 2 levels required`);
+      }
+      return q.criteria.map((c) => (typeof c === "string" ? c : JSON.stringify(c)));
+    }
+  }
+}
 
 export interface Answer {
   id: string;
   type: Question["type"];
-  /** Argmax label (`yes`/`no` for noul). */
+  /** Argmax label (`true`/`false` for noul). */
   value: string;
-  /** Noul: P(yes). */
-  probability?: number;
-  /** Score: expected level normalized to 0..1. */
+  /** Noul: P(true). */
+  noul?: number;
+  /** Choice: argmax option key. */
+  choice?: string;
+  /** Score: expected level index (0..n-1). */
   score?: number;
-  /** Score: expected level index. */
-  level?: number;
+  /** Score: expected level normalized to 0..1 (s1 extension). */
+  scoreNormalized?: number;
+  /** Score: legend mapping index -> level description. */
+  legend?: Record<string, string>;
   probabilities: Record<string, number>;
+  /** TypeSafe confidence formula. */
   confidence: number;
+  /** s1 extension: top probability (our former confidence). */
+  topProbability: number;
   margin: number;
   strategy: Strategy;
   totalRaw: number;
@@ -76,34 +121,35 @@ export function temperatureScale(probs: Record<string, number>, t: number): Reco
   return scaled;
 }
 
-function topStats(probs: Record<string, number>): {
-  value: string;
-  confidence: number;
-  margin: number;
-} {
+function topStats(probs: Record<string, number>): { value: string; top: number; second: number } {
   const entries = Object.entries(probs).sort((a, b) => b[1] - a[1]);
   const value = entries[0]?.[0] ?? "";
   const top = entries[0]?.[1] ?? 0;
   const second = entries[1]?.[1] ?? 0;
-  return { value, confidence: top, margin: top - second };
+  return { value, top, second };
 }
 
-/** The canonical labels a question is answered with, in schema order. */
-export function questionLabels(q: Question): string[] {
-  switch (q.type) {
-    case "noul":
-      return ["yes", "no"];
-    case "choice": {
-      if (!q.options?.length) throw new Error(`question ${q.id}: options required`);
-      return [...new Set(q.options)];
-    }
-    case "score": {
-      if (!q.levels || q.levels.length < 2) {
-        throw new Error(`question ${q.id}: at least 2 levels required`);
-      }
-      return [...new Set(q.levels)];
-    }
+/** TypeSafe confidence for a choice: (p_max - uniform)/(1 - uniform). */
+export function confidenceChoice(probs: Record<string, number>): number {
+  const n = Object.keys(probs).length;
+  if (n < 2) return 1;
+  const { top } = topStats(probs);
+  const uniform = 1 / n;
+  return Math.max(0, (top - uniform) / (1 - uniform));
+}
+
+/** TypeSafe confidence for a score: 1 - (mean distance to mode)/(uniform distance). */
+export function confidenceScore(probs: number[]): number {
+  const n = probs.length;
+  if (n < 2) return 1;
+  const mode = probs.indexOf(Math.max(...probs));
+  let dist = 0;
+  let distUniform = 0;
+  for (let i = 0; i < n; i++) {
+    dist += probs[i]! * Math.abs(i - mode);
+    distUniform += Math.abs(i - (n - 1) / 2) / n;
   }
+  return Math.max(0, 1 - dist / distUniform);
 }
 
 /** The user turn for a question (the per-question prompt body). */
@@ -111,11 +157,11 @@ export function questionUserContent(q: Question): string {
   const labels = questionLabels(q);
   switch (q.type) {
     case "noul":
-      return noulUserContent(q.statement);
+      return noulUserContent(q.instructions);
     case "choice":
-      return choiceUserContent(q.prompt, labels);
+      return choiceUserContent(q.instructions, labels);
     case "score":
-      return scoreUserContent(q.prompt, labels);
+      return scoreUserContent(q.instructions, labels);
   }
 }
 
@@ -156,15 +202,16 @@ export async function scorePrepared(
   });
 
   const probabilities = temperatureScale(scored.probabilities, opts.temperature ?? 1);
-  const { value, confidence, margin } = topStats(probabilities);
+  const { value, top, second } = topStats(probabilities);
 
   return decorateAnswer(q, {
     id: q.id,
     type: q.type,
     value,
     probabilities,
-    confidence,
-    margin,
+    confidence: 0, // set by decorateAnswer
+    topProbability: top,
+    margin: top - second,
     strategy: scored.strategy,
     totalRaw: scored.totalRaw,
     calls: scored.calls,
@@ -172,22 +219,46 @@ export async function scorePrepared(
   });
 }
 
-/** Apply the type-specific derivations (noul / score) to a scored answer. */
+/**
+ * Apply the TypeSafe answer derivations (noul / choice / score) and the s1
+ * extras (topProbability, scoreNormalized) to a scored answer. `probabilities`
+ * is the label-keyed map; for score it is re-keyed to index strings with a
+ * `legend`.
+ */
 export function decorateAnswer(q: Question, answer: Answer): Answer {
+  const labels = questionLabels(q);
+
   if (q.type === "noul") {
-    const p = answer.probabilities["yes"] ?? 0;
-    answer.probability = p;
+    const p = answer.probabilities["true"] ?? 0;
+    answer.noul = p;
+    answer.value = p >= 0.5 ? "true" : "false";
     answer.confidence = Math.abs(p - 0.5) * 2;
     answer.margin = Math.abs(p - (1 - p));
-  } else if (q.type === "score") {
-    const labels = questionLabels(q);
-    const k = labels.length;
+  } else if (q.type === "choice") {
+    answer.choice = answer.value;
+    answer.confidence = confidenceChoice(answer.probabilities);
+  } else {
+    // score: re-key to index strings and attach a legend; keep normalized too.
+    const indexProbs: Record<string, number> = {};
+    const legend: Record<string, string> = {};
     let expected = 0;
     labels.forEach((lvl, i) => {
-      expected += i * (answer.probabilities[lvl] ?? 0);
+      const p = answer.probabilities[lvl] ?? 0;
+      indexProbs[String(i)] = p;
+      legend[String(i)] = lvl;
+      expected += i * p;
     });
-    answer.level = expected;
-    answer.score = k > 1 ? expected / (k - 1) : 0;
+    answer.probabilities = indexProbs;
+    answer.legend = legend;
+    answer.score = expected;
+    const k = labels.length;
+    answer.scoreNormalized = k > 1 ? expected / (k - 1) : 0;
+    answer.value = labels[Math.round(expected)] ?? labels[0] ?? "";
+    const vals = labels.map((_, i) => indexProbs[String(i)]!);
+    const { top, second } = topStats(indexProbs);
+    answer.topProbability = top;
+    answer.margin = top - second;
+    answer.confidence = confidenceScore(vals);
   }
   return answer;
 }

@@ -5,6 +5,12 @@ export function serializeState(state: unknown): string {
   return JSON.stringify(state, null, 2);
 }
 
+/** `instructions` may be a string, object or array — serialize non-strings. */
+export function serializeInstructions(v: unknown): string {
+  if (typeof v === "string") return v;
+  return JSON.stringify(v, null, 2);
+}
+
 const SYSTEM = [
   "You are a precise classifier.",
   "Read the STATE and answer the QUESTION.",
@@ -18,14 +24,14 @@ export function buildMessages(state: unknown, userContent: string): ChatMessage[
   ];
 }
 
-export function noulUserContent(statement: string): string {
-  return `${statement}\nAnswer yes or no:`;
+export function noulUserContent(instructions: unknown): string {
+  return `${serializeInstructions(instructions)}\nAnswer true or false:`;
 }
 
-export function choiceUserContent(prompt: string, options: string[]): string {
-  return `${prompt}\nChoose exactly one of: ${options.join(", ")}.\nAnswer:`;
+export function choiceUserContent(instructions: unknown, options: string[]): string {
+  return `${serializeInstructions(instructions)}\nChoose exactly one of: ${options.join(", ")}.\nAnswer:`;
 }
 
-export function scoreUserContent(prompt: string, levels: string[]): string {
-  return `${prompt}\nRate on this ordered scale: ${levels.join(" < ")}.\nAnswer:`;
+export function scoreUserContent(instructions: unknown, levels: string[]): string {
+  return `${serializeInstructions(instructions)}\nRate on this ordered scale: ${levels.join(" < ")}.\nAnswer:`;
 }

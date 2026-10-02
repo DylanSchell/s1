@@ -8,22 +8,20 @@ const out = await evaluate({
     review: "This product exceeded my expectations. Shipping was slow though.",
     user: { name: "Dylan", plan: "pro" },
   },
-  questions: [
-    { id: "positive", type: "noul", statement: "The review is positive overall." },
-    { id: "shipping", type: "noul", statement: "The customer complains about shipping." },
-    {
-      id: "sentiment",
+  questions: {
+    positive: { type: "noul", instructions: "The review is positive overall." },
+    shipping: { type: "noul", instructions: "The customer complains about shipping." },
+    sentiment: {
       type: "choice",
-      prompt: "Overall sentiment",
-      options: ["positive", "negative", "neutral"],
+      instructions: "Overall sentiment",
+      criteria: { positive: null, negative: null, neutral: null },
     },
-    {
-      id: "urgency",
+    urgency: {
       type: "score",
-      prompt: "How urgently should support follow up?",
-      levels: ["none", "low", "medium", "high"],
+      instructions: "How urgently should support follow up?",
+      criteria: ["none", "low", "medium", "high"],
     },
-  ],
+  },
 });
 
 console.log(JSON.stringify(out, null, 2));

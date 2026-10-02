@@ -9,7 +9,7 @@ import {
   matchOptionPath,
   type OptionPath,
 } from "./options.ts";
-import { buildMessages } from "./prompt.ts";
+import { buildMessages, serializeInstructions } from "./prompt.ts";
 import {
   decorateAnswer,
   questionLabels,
@@ -27,15 +27,16 @@ interface Field {
 function listContent(questions: Question[]): string {
   const lines = questions.map((q, i) => {
     const n = i + 1;
+    const instr = serializeInstructions(q.instructions);
     switch (q.type) {
       case "noul":
-        return `${n}. ${q.statement} [yes | no]`;
+        return `${n}. ${instr} [true | false]`;
       case "choice":
-        return `${n}. ${q.prompt} [${questionLabels(q).join(" | ")}]`;
+        return `${n}. ${instr} [${questionLabels(q).join(" | ")}]`;
       // Preserve the ordering signal that the per-question prompt encodes with
       // `<`; a `|` list reads as unordered and lets the model hedge to the middle.
       case "score":
-        return `${n}. ${q.prompt} [ordered scale: ${questionLabels(q).join(" < ")}]`;
+        return `${n}. ${instr} [ordered scale: ${questionLabels(q).join(" < ")}]`;
     }
   });
   return [
@@ -186,7 +187,8 @@ export async function answerAll(
       type: f.question.type,
       value: chosen >= 0 ? f.labels[chosen]! : "",
       probabilities: dist.probabilities,
-      confidence: sorted[0]?.[1] ?? 0,
+      confidence: 0, // set by decorateAnswer
+      topProbability: sorted[0]?.[1] ?? 0,
       margin: (sorted[0]?.[1] ?? 0) - (sorted[1]?.[1] ?? 0),
       strategy: "single-pass",
       totalRaw: dist.rawTotal,

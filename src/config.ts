@@ -49,7 +49,7 @@ export interface Config {
  */
 export const config: Config = {
   baseUrl: process.env.S1_BASE_URL ?? "http://localhost:8080",
-  model: process.env.S1_MODEL ?? "qwen38-flash-next",
+  model: process.env.S1_MODEL ?? "deepseek-v4-flash-0731",
   concurrency: Number(process.env.S1_CONCURRENCY ?? 2),
   timeoutMs: Number(process.env.S1_TIMEOUT_MS ?? 180_000),
   port: Number(process.env.S1_PORT ?? 8090),

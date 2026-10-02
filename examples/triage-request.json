@@ -1,39 +1,41 @@
 {
   "state": "A customer says a password reset succeeded, but every login attempt still returns \"account locked\". Two unlock emails were requested and neither arrived.",
-  "questions": [
-    {
-      "id": "queue",
+  "questions": {
+    "queue": {
       "type": "choice",
-      "prompt": "Which queue should handle this request?",
-      "options": ["Account access support", "Billing Support", "Close as resolved"]
+      "instructions": "Which queue should handle this request?",
+      "criteria": {
+        "Account access support": null,
+        "Billing Support": null,
+        "Close as resolved": null
+      }
     },
-    {
-      "id": "can_sign_in",
+    "can_sign_in": {
       "type": "noul",
-      "statement": "The customer is currently able to sign in to their account."
+      "instructions": "The customer is currently able to sign in to their account."
     },
-    {
-      "id": "emails_delivered",
+    "emails_delivered": {
       "type": "noul",
-      "statement": "The requested unlock emails were delivered to the customer."
+      "instructions": "The requested unlock emails were delivered to the customer."
     },
-    {
-      "id": "root_cause",
+    "root_cause": {
       "type": "choice",
-      "prompt": "Which system is the most likely root cause?",
-      "options": ["auth", "email", "billing"]
+      "instructions": "Which system is the most likely root cause?",
+      "criteria": {
+        "auth": null,
+        "email": null,
+        "billing": null
+      }
     },
-    {
-      "id": "urgency",
+    "urgency": {
       "type": "score",
-      "prompt": "How urgently should an agent respond?",
-      "levels": ["low", "medium", "high", "critical"]
+      "instructions": "How urgently should an agent respond?",
+      "criteria": ["low", "medium", "high", "critical"]
     },
-    {
-      "id": "frustration",
+    "frustration": {
       "type": "score",
-      "prompt": "How frustrated is the customer?",
-      "levels": ["calm", "mildly frustrated", "very frustrated"]
+      "instructions": "How frustrated is the customer?",
+      "criteria": ["calm", "mildly frustrated", "very frustrated"]
     }
-  ]
+  }
 }
