@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "smoke": "bun run scripts/smoke.ts",
     "evaluate": "bash scripts/evaluate.sh",
-    "compare": "bun run scripts/triage-compare.ts"
+    "compare": "bun run scripts/triage-compare.ts",
+    "bench": "bun run scripts/bench-vs-native.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

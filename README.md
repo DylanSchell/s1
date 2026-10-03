@@ -160,7 +160,7 @@ src/
   evaluate.ts    orchestration, per-question error isolation
   server.ts      Bun HTTP server
 examples/        sample request payloads
-scripts/         evaluate.sh (validation), smoke.ts, triage-compare.ts
+scripts/         evaluate.sh (validation), smoke.ts, triage-compare.ts, bench-vs-native.ts
 test/            unit tests + opt-in live integration tests
 ```
 
@@ -172,6 +172,7 @@ bun test                                     # unit tests
 S1_LIVE=1 bun test                           # + live tests against the model
 bun run scripts/smoke.ts                     # one-shot evaluation, prints JSON
 bun run compare                              # per-question vs single-pass, side by side
+bun run bench                                # s1 vs a native decision model (NATIVE_MODEL=clef)
 bun run scripts/measure-prefix-cache.ts      # prompt-cache reuse law on this server
 bun run scripts/measure-prime-crossover.ts   # where priming starts to pay for itself
 ```
